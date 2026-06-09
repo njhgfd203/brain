@@ -1,4 +1,7 @@
 .env
+# Секреты/токены — никогда не коммитим
+Token_git.txt
+*token*.txt
 db/*.sqlite
 chroma_db/
 __pycache__/
