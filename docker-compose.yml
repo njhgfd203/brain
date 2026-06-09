@@ -1,16 +1,20 @@
-version: "3.9"
-
 services:
   bot:
     build: .
     restart: unless-stopped
     env_file: .env
+    environment:
+      # Кеш моделей HuggingFace (e5) — в постоянном томе, чтобы не качать ~1 ГБ
+      # заново при каждой пересборке/перезапуске контейнера.
+      HF_HOME: /app/hf_cache
     volumes:
       - ./knowledge:/app/knowledge
       - ./db:/app/db
       - chroma_data:/app/chroma_db
+      - hf_cache:/app/hf_cache
     ports:
       - "8443:8443"
 
 volumes:
   chroma_data:
+  hf_cache:

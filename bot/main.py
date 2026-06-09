@@ -3,11 +3,28 @@ import logging
 from urllib.parse import urlsplit
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommand
 
 from bot.config import settings
 from bot.handlers import admin, ask, notes, tasks
 from bot.middlewares.access import AccessMiddleware
 from db.database import init_db
+
+
+# Нативное меню команд Telegram (кнопка "Menu" + автоподсказка по "/").
+BOT_COMMANDS = [
+    BotCommand(command="note", description="Сохранить заметку в inbox"),
+    BotCommand(command="ask", description="Спросить по базе знаний"),
+    BotCommand(command="reindex", description="Переиндексировать базу знаний"),
+    BotCommand(command="task", description="Добавить задачу [дата] [#домен]"),
+    BotCommand(command="today", description="Задачи на сегодня и просроченные"),
+    BotCommand(command="week", description="Обзор задач на 7 дней"),
+    BotCommand(command="help", description="Список команд"),
+]
+
+
+async def set_bot_commands(bot: Bot) -> None:
+    await bot.set_my_commands(BOT_COMMANDS)
 
 
 def build_dispatcher() -> Dispatcher:
@@ -25,6 +42,7 @@ async def run_polling() -> None:
     await init_db()
     bot = Bot(token=settings.telegram_bot_token)
     dp = build_dispatcher()
+    await set_bot_commands(bot)
     await dp.start_polling(bot)
 
 
@@ -38,6 +56,8 @@ async def run_webhook() -> None:
 
     parsed = urlsplit(settings.telegram_webhook_url)
     path = parsed.path if parsed.path else "/webhook"
+
+    await set_bot_commands(bot)
 
     app = web.Application()
     SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=path)
