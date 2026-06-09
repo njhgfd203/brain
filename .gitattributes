@@ -1,0 +1,8 @@
+# Нормализуем переводы строк в LF для всех текстовых файлов.
+# Важно для деплоя на Linux-VPS: CRLF в Dockerfile/скриптах ломает сборку.
+* text=auto eol=lf
+
+# Бинарные файлы не трогаем
+*.png binary
+*.jpg binary
+*.sqlite binary

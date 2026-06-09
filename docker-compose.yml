@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./knowledge:/app/knowledge
+      - ./db:/app/db
+      - chroma_data:/app/chroma_db
+    ports:
+      - "8443:8443"
+
+volumes:
+  chroma_data:
