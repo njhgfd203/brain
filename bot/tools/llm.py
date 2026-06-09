@@ -15,6 +15,11 @@ SYSTEM_PROMPT = """\
 Контекст из базы знаний:
 {context}"""
 
+# Ответ уходит в Telegram (лимит 4096 символов), поэтому большой потолок не нужен.
+# Без явного max_tokens OpenRouter резервирует дефолтный максимум модели (64k у Sonnet)
+# и отбивает запрос с 402, если баланса не хватает на этот максимум.
+MAX_TOKENS = 2000
+
 _client: openai.AsyncOpenAI | None = None
 
 
@@ -42,6 +47,7 @@ async def ask_llm(question: str, chunks: list[dict]) -> str:
     client = _get_client()
     resp = await client.chat.completions.create(
         model=settings.llm_model,
+        max_tokens=MAX_TOKENS,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT.format(context=context)},
             {"role": "user", "content": question},
