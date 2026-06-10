@@ -15,6 +15,13 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
+@router.message(Command("morning"))
+async def cmd_morning(message: Message) -> None:
+    """Ручной запуск утреннего дайджеста (для проверки)."""
+    from bot.scheduler import send_morning_digest
+    await send_morning_digest(message.bot)
+
+
 @router.message(Command("reindex"))
 async def cmd_reindex(message: Message) -> None:
     """Переиндексирует всю папку knowledge/."""

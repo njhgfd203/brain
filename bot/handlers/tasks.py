@@ -15,6 +15,18 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 
+def urgency_emoji(due_date: str | None) -> str:
+    """Смайлик срочности по дате: 🔴 просрочено, 🟠 сегодня, 🟡 позже, ⚪ без срока."""
+    if not due_date:
+        return "⚪"
+    today = date.today().isoformat()
+    if due_date < today:
+        return "🔴"
+    if due_date == today:
+        return "🟠"
+    return "🟡"
+
+
 # Допустимые домены
 _DOMAINS = ("technored", "ministry", "personal")
 _DOMAIN_PATTERN = re.compile(

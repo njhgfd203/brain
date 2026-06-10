@@ -7,6 +7,8 @@ services:
       # Кеш моделей HuggingFace (e5) — в постоянном томе, чтобы не качать ~1 ГБ
       # заново при каждой пересборке/перезапуске контейнера.
       HF_HOME: /app/hf_cache
+      # Часовой пояс — для расписаний дайджестов и логов.
+      TZ: Europe/Moscow
     volumes:
       - ./knowledge:/app/knowledge
       - ./db:/app/db

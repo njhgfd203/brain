@@ -26,5 +26,14 @@ class Settings(BaseSettings):
     chunk_overlap: int = 50
     top_k_results: int = 5
 
+    # Планировщик / напоминания
+    timezone: str = "Europe/Moscow"
+    morning_time: str = "09:00"          # утренний дайджест задач
+    evening_time: str = "23:00"          # вечерняя сводка
+    meeting_reminder_min: int = 60       # за сколько минут напоминать о встрече
+
+    # Голос
+    whisper_model: str = "openai/whisper-1"
+
 
 settings = Settings()

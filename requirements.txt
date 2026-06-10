@@ -6,3 +6,5 @@ sentence-transformers
 openai
 aiosqlite
 dateparser
+apscheduler>=3.10,<4
+tzdata

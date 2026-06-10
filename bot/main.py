@@ -8,6 +8,7 @@ from aiogram.types import BotCommand
 from bot.config import settings
 from bot.handlers import admin, ask, notes, tasks
 from bot.middlewares.access import AccessMiddleware
+from bot.scheduler import setup_scheduler
 from db.database import init_db
 
 
@@ -43,6 +44,7 @@ async def run_polling() -> None:
     bot = Bot(token=settings.telegram_bot_token)
     dp = build_dispatcher()
     await set_bot_commands(bot)
+    setup_scheduler(bot)
     await dp.start_polling(bot)
 
 
@@ -53,6 +55,8 @@ async def run_webhook() -> None:
     await init_db()
     bot = Bot(token=settings.telegram_bot_token)
     dp = build_dispatcher()
+
+    setup_scheduler(bot)
 
     parsed = urlsplit(settings.telegram_webhook_url)
     path = parsed.path if parsed.path else "/webhook"
