@@ -22,6 +22,13 @@ async def cmd_morning(message: Message) -> None:
     await send_morning_digest(message.bot)
 
 
+@router.message(Command("evening"))
+async def cmd_evening(message: Message) -> None:
+    """Ручной запуск вечерней сводки (для проверки)."""
+    from bot.scheduler import send_evening_review
+    await send_evening_review(message.bot)
+
+
 @router.message(Command("reindex"))
 async def cmd_reindex(message: Message) -> None:
     """Переиндексирует всю папку knowledge/."""

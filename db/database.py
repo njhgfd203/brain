@@ -78,6 +78,23 @@ async def get_week_tasks() -> list[dict]:
         return [dict(row) for row in rows]
 
 
+async def rollover_unfinished(to_date: str) -> int:
+    """Переносит невыполненные задачи (срок <= сегодня) на дату to_date. Возвращает число перенесённых."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            UPDATE tasks
+            SET due_date = ?
+            WHERE is_done = 0
+              AND due_date IS NOT NULL
+              AND due_date <= date('now', 'localtime')
+            """,
+            (to_date,),
+        )
+        await db.commit()
+        return cursor.rowcount
+
+
 async def complete_task(task_id: int) -> bool:
     """Помечает задачу выполненной. Возвращает True если строка была обновлена."""
     async with aiosqlite.connect(DB_PATH) as db:

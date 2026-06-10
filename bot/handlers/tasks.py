@@ -3,13 +3,24 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date
+from datetime import date, timedelta
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
-from db.database import add_task, get_today_tasks, get_week_tasks
+from db.database import (
+    add_task,
+    complete_task,
+    get_today_tasks,
+    get_week_tasks,
+    rollover_unfinished,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -168,3 +179,56 @@ async def cmd_week(message: Message) -> None:
             lines.append(f"  • [{t['id']}] {t['text']} — {t['due_date']}")
 
     await message.answer("\n".join(lines))
+
+
+# --- Вечерняя сводка: список с кнопками ✅ и переносом на завтра ---
+
+def _short(text: str, limit: int = 30) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+async def build_evening_view() -> tuple[str, InlineKeyboardMarkup | None]:
+    """Текст и клавиатура вечерней сводки по незакрытым задачам на сегодня."""
+    tasks = await get_today_tasks()
+    if not tasks:
+        return "🌙 Вечер. Все задачи на сегодня закрыты — красавчик! 🎉", None
+
+    lines = ["🌙 Итоги дня. Что закрыто? Отметь ✅, остальное перенесём на завтра:", ""]
+    rows: list[list[InlineKeyboardButton]] = []
+    for t in tasks:
+        emoji = urgency_emoji(t["due_date"])
+        lines.append(f"{emoji} [{t['id']}] {t['text']} ({t['domain']})")
+        rows.append([
+            InlineKeyboardButton(
+                text=f"✅ {_short(t['text'])}",
+                callback_data=f"done:{t['id']}",
+            )
+        ])
+    rows.append([
+        InlineKeyboardButton(
+            text="⏭ Перенести остальные на завтра",
+            callback_data="rollover",
+        )
+    ])
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(F.data.startswith("done:"))
+async def cb_done(callback: CallbackQuery) -> None:
+    task_id = int(callback.data.split(":", 1)[1])
+    await complete_task(task_id)
+    await callback.answer("Готово ✅")
+    text, markup = await build_evening_view()
+    if callback.message:
+        await callback.message.edit_text(text, reply_markup=markup)
+
+
+@router.callback_query(F.data == "rollover")
+async def cb_rollover(callback: CallbackQuery) -> None:
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    moved = await rollover_unfinished(tomorrow)
+    await callback.answer(f"Перенесено: {moved}")
+    if callback.message:
+        await callback.message.edit_text(
+            f"⏭ Перенёс на завтра задач: {moved}.\nЗавтра утром напомню. Спокойной ночи 🌙"
+        )

@@ -8,7 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from bot.config import settings
-from bot.handlers.tasks import urgency_emoji
+from bot.handlers.tasks import build_evening_view, urgency_emoji
 from db.database import get_today_tasks
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,13 @@ async def send_morning_digest(bot: Bot) -> None:
     await bot.send_message(uid, "\n".join(lines))
 
 
+async def send_evening_review(bot: Bot) -> None:
+    """Вечером: список незакрытых задач с кнопками ✅ и переносом на завтра."""
+    uid = settings.telegram_allowed_user_id
+    text, markup = await build_evening_view()
+    await bot.send_message(uid, text, reply_markup=markup)
+
+
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     """Создаёт и запускает планировщик с регулярными задачами."""
     scheduler = AsyncIOScheduler(timezone=settings.timezone)
@@ -54,9 +61,18 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         replace_existing=True,
     )
 
+    e_h, e_m = _parse_hm(settings.evening_time)
+    scheduler.add_job(
+        send_evening_review,
+        CronTrigger(hour=e_h, minute=e_m, timezone=settings.timezone),
+        args=[bot],
+        id="evening_review",
+        replace_existing=True,
+    )
+
     scheduler.start()
     logger.info(
-        "Планировщик запущен (TZ=%s): утренний дайджест в %02d:%02d",
-        settings.timezone, m_h, m_m,
+        "Планировщик запущен (TZ=%s): утро %02d:%02d, вечер %02d:%02d",
+        settings.timezone, m_h, m_m, e_h, e_m,
     )
     return scheduler
