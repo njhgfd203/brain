@@ -15,3 +15,12 @@ CREATE TABLE IF NOT EXISTS notes_index (
     chunk_count INTEGER,
     content_hash TEXT
 );
+
+CREATE TABLE IF NOT EXISTS meetings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    domain TEXT DEFAULT 'personal',
+    start_at DATETIME NOT NULL,          -- локальное MSK, 'YYYY-MM-DD HH:MM:SS'
+    reminder_sent BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);

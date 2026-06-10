@@ -78,6 +78,63 @@ async def get_week_tasks() -> list[dict]:
         return [dict(row) for row in rows]
 
 
+async def add_meeting(title: str, domain: str, start_at: str) -> int:
+    """Добавляет встречу (start_at — 'YYYY-MM-DD HH:MM:SS' локального времени)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "INSERT INTO meetings (title, domain, start_at) VALUES (?, ?, ?)",
+            (title, domain, start_at),
+        )
+        await db.commit()
+        return cursor.lastrowid  # type: ignore[return-value]
+
+
+async def get_due_meetings(now_iso: str, limit_iso: str) -> list[dict]:
+    """Встречи, до которых <= окна напоминания и которые ещё не напоминались."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT id, title, domain, start_at
+            FROM meetings
+            WHERE reminder_sent = 0
+              AND start_at > ?
+              AND start_at <= ?
+            ORDER BY start_at ASC
+            """,
+            (now_iso, limit_iso),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def mark_meeting_reminded(meeting_id: int) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE meetings SET reminder_sent = 1 WHERE id = ?",
+            (meeting_id,),
+        )
+        await db.commit()
+
+
+async def get_upcoming_meetings(limit: int = 10) -> list[dict]:
+    """Ближайшие будущие встречи."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT id, title, domain, start_at
+            FROM meetings
+            WHERE start_at >= datetime('now', 'localtime')
+            ORDER BY start_at ASC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
 async def rollover_unfinished(to_date: str) -> int:
     """Переносит невыполненные задачи (срок <= сегодня) на дату to_date. Возвращает число перенесённых."""
     async with aiosqlite.connect(DB_PATH) as db:

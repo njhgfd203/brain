@@ -2,14 +2,16 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 
 from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from bot.config import settings
 from bot.handlers.tasks import build_evening_view, urgency_emoji
-from db.database import get_today_tasks
+from db.database import get_due_meetings, get_today_tasks, mark_meeting_reminded
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +50,23 @@ async def send_evening_review(bot: Bot) -> None:
     await bot.send_message(uid, text, reply_markup=markup)
 
 
+async def check_meeting_reminders(bot: Bot) -> None:
+    """Каждую минуту: напоминает о встречах, до которых <= окна напоминания."""
+    uid = settings.telegram_allowed_user_id
+    now = datetime.now()
+    now_iso = now.strftime("%Y-%m-%d %H:%M:%S")
+    limit_iso = (now + timedelta(minutes=settings.meeting_reminder_min)).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    for m in await get_due_meetings(now_iso, limit_iso):
+        try:
+            when = datetime.strptime(m["start_at"], "%Y-%m-%d %H:%M:%S").strftime("%H:%M")
+        except Exception:
+            when = m["start_at"]
+        await bot.send_message(uid, f"🔔 Через час встреча: {m['title']} — в {when}")
+        await mark_meeting_reminded(m["id"])
+
+
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     """Создаёт и запускает планировщик с регулярными задачами."""
     scheduler = AsyncIOScheduler(timezone=settings.timezone)
@@ -70,9 +89,18 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         replace_existing=True,
     )
 
+    scheduler.add_job(
+        check_meeting_reminders,
+        IntervalTrigger(minutes=1),
+        args=[bot],
+        id="meeting_reminders",
+        replace_existing=True,
+    )
+
     scheduler.start()
     logger.info(
-        "Планировщик запущен (TZ=%s): утро %02d:%02d, вечер %02d:%02d",
-        settings.timezone, m_h, m_m, e_h, e_m,
+        "Планировщик запущен (TZ=%s): утро %02d:%02d, вечер %02d:%02d, "
+        "напоминания о встречах за %d мин",
+        settings.timezone, m_h, m_m, e_h, e_m, settings.meeting_reminder_min,
     )
     return scheduler

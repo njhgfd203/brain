@@ -6,7 +6,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand
 
 from bot.config import settings
-from bot.handlers import admin, ask, notes, tasks
+from bot.handlers import admin, ask, meetings, notes, tasks
 from bot.middlewares.access import AccessMiddleware
 from bot.scheduler import setup_scheduler
 from db.database import init_db
@@ -20,6 +20,8 @@ BOT_COMMANDS = [
     BotCommand(command="task", description="Добавить задачу [дата] [#домен]"),
     BotCommand(command="today", description="Задачи на сегодня и просроченные"),
     BotCommand(command="week", description="Обзор задач на 7 дней"),
+    BotCommand(command="meet", description="Добавить встречу (напомню за час)"),
+    BotCommand(command="meetings", description="Ближайшие встречи"),
     BotCommand(command="help", description="Список команд"),
 ]
 
@@ -35,6 +37,7 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(notes.router)
     dp.include_router(admin.router)
     dp.include_router(tasks.router)
+    dp.include_router(meetings.router)
     dp.include_router(ask.router)
     return dp
 
