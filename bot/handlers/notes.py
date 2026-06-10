@@ -34,19 +34,15 @@ HELP_TEXT = (
 
 @router.message(Command("start", "help"))
 async def cmd_start(message: Message) -> None:
-    await message.answer(HELP_TEXT)
+    from bot.keyboards import main_keyboard
+    await message.answer(HELP_TEXT, reply_markup=main_keyboard)
 
 
-@router.message(Command("note"))
-async def cmd_note(message: Message, command: CommandObject) -> None:
-    text = command.args
-    if not text or not text.strip():
-        await message.answer(
-            "Использование: /note <текст>\n"
-            "Например: /note Обсудить с командой новый дизайн"
-        )
-        return
+async def save_note(text: str) -> tuple[Path, bool]:
+    """Сохраняет заметку в inbox/YYYY-MM-DD.md и индексирует. Возвращает (файл, indexed_ok).
 
+    Переиспользуется командой /note, FSM-флоу и голосовыми сообщениями.
+    """
     today = datetime.now()
     date_str = today.strftime("%Y-%m-%d")
     time_str = today.strftime("%H:%M")
@@ -72,12 +68,26 @@ async def cmd_note(message: Message, command: CommandObject) -> None:
     with note_file.open("a", encoding="utf-8") as f:
         f.write(entry)
 
-    await message.answer(f"Сохранено в inbox/{date_str}.md")
-
-    # Индексируем файл сразу после сохранения
+    # Индексируем файл сразу после сохранения (в том же процессе — без stale-индекса)
     try:
         await asyncio.to_thread(indexer.index_file, note_file)
+        return note_file, True
     except Exception:
         logger.exception("Failed to index note file %s", note_file)
-        # Заметка уже сохранена на диске — только предупреждаем
+        return note_file, False
+
+
+@router.message(Command("note"))
+async def cmd_note(message: Message, command: CommandObject) -> None:
+    text = command.args
+    if not text or not text.strip():
+        await message.answer(
+            "Использование: /note <текст>\n"
+            "Например: /note Обсудить с командой новый дизайн"
+        )
+        return
+
+    note_file, indexed = await save_note(text.strip())
+    await message.answer(f"Сохранено в inbox/{note_file.name}")
+    if not indexed:
         await message.answer("(Заметка сохранена, но индексация не удалась — попробуй /reindex)")

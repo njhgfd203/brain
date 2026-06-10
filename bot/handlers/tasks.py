@@ -95,6 +95,30 @@ def _parse_due(text: str) -> tuple[str | None, str]:
         return None, text
 
 
+async def create_task_from_text(raw: str) -> dict | None:
+    """Парсит '#домен текст дата' → создаёт задачу. None, если нет текста задачи.
+
+    Переиспользуется командой /task, FSM-флоу и голосовыми сообщениями.
+    """
+    domain, remaining = _parse_domain(raw.strip())
+    due_date, task_text = _parse_due(remaining)
+    task_text = task_text.strip()
+    if not task_text:
+        return None
+    task_id = await add_task(task_text, domain, due_date)
+    return {"id": task_id, "text": task_text, "domain": domain, "due_date": due_date}
+
+
+def format_task_added(task: dict) -> str:
+    due_str = task["due_date"] if task["due_date"] else "без срока"
+    return (
+        f"✅ Задача добавлена #{task['id']}\n"
+        f"Текст: {task['text']}\n"
+        f"Домен: {task['domain']}\n"
+        f"Срок: {due_str}"
+    )
+
+
 @router.message(Command("task"))
 async def cmd_task(message: Message, command: CommandObject) -> None:
     args = command.args
@@ -110,14 +134,8 @@ async def cmd_task(message: Message, command: CommandObject) -> None:
         )
         return
 
-    # 1. Извлекаем домен
-    domain, remaining = _parse_domain(args.strip())
-
-    # 2. Извлекаем дату из оставшегося текста
-    due_date, task_text = _parse_due(remaining)
-
-    task_text = task_text.strip()
-    if not task_text:
+    task = await create_task_from_text(args.strip())
+    if task is None:
         await message.answer(
             "Не удалось понять текст задачи. "
             "Напиши, пожалуйста, что именно нужно сделать.\n"
@@ -125,15 +143,7 @@ async def cmd_task(message: Message, command: CommandObject) -> None:
         )
         return
 
-    task_id = await add_task(task_text, domain, due_date)
-
-    due_str = due_date if due_date else "без срока"
-    await message.answer(
-        f"Задача добавлена #{task_id}\n"
-        f"Текст: {task_text}\n"
-        f"Домен: {domain}\n"
-        f"Срок: {due_str}"
-    )
+    await message.answer(format_task_added(task))
 
 
 @router.message(Command("today"))

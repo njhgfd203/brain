@@ -3,10 +3,11 @@ import logging
 from urllib.parse import urlsplit
 
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
 from bot.config import settings
-from bot.handlers import admin, ask, meetings, notes, tasks
+from bot.handlers import admin, ask, meetings, menu, notes, tasks
 from bot.middlewares.access import AccessMiddleware
 from bot.scheduler import setup_scheduler
 from db.database import init_db
@@ -31,13 +32,15 @@ async def set_bot_commands(bot: Bot) -> None:
 
 
 def build_dispatcher() -> Dispatcher:
-    dp = Dispatcher()
+    dp = Dispatcher(storage=MemoryStorage())
     dp.update.middleware(AccessMiddleware())
-    # Порядок важен: ask.router — последним (catch-all на свободный текст)
+    # Порядок важен: menu.router (кнопки/FSM) перед ask; ask.router — последним
+    # (catch-all на свободный текст).
     dp.include_router(notes.router)
     dp.include_router(admin.router)
     dp.include_router(tasks.router)
     dp.include_router(meetings.router)
+    dp.include_router(menu.router)
     dp.include_router(ask.router)
     return dp
 
