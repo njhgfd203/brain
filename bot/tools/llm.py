@@ -65,6 +65,40 @@ def _get_client() -> openai.AsyncOpenAI:
     return _client
 
 
+CLASSIFY_PROMPT = """\
+Определи тип сообщения Даниила и ответь РОВНО одним словом на английском: \
+task, meeting, question или note.
+
+- task — нужно что-то сделать, поручение, дело (купить, позвонить, подготовить, дедлайн).
+- meeting — про встречу/созвон с конкретным временем (встреча завтра в 15:00).
+- question — вопрос или просьба что-то рассказать, найти, объяснить.
+- note — мысль, идея, факт «на запомнить», не требующие действия.
+
+Ответь только одним словом, без точки и пояснений."""
+
+_VALID_INTENTS = ("meeting", "task", "note", "question")
+
+
+async def classify_intent(text: str) -> str:
+    """Классифицирует текст в одно из: note / task / question / meeting."""
+    client = _get_client()
+    resp = await client.chat.completions.create(
+        model=settings.llm_model,
+        max_tokens=8,
+        messages=[
+            {"role": "system", "content": CLASSIFY_PROMPT},
+            {"role": "user", "content": text},
+        ],
+        extra_headers={"HTTP-Referer": "https://github.com/brain-bot", "X-Title": "brain"},
+    )
+    raw = (resp.choices[0].message.content or "").strip().lower()
+    # meeting проверяем первым: встреча тоже подразумевает действие
+    for intent in _VALID_INTENTS:
+        if intent in raw:
+            return intent
+    return "question"
+
+
 async def ask_llm(question: str, chunks: list[dict]) -> str:
     """Отправляет вопрос в LLM с контекстом из RAG-чанков."""
     if chunks:

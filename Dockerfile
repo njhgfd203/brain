@@ -8,6 +8,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
 
+# ffmpeg — конвертация голосовых Telegram (OGG/Opus) в mp3 для Whisper.
+# После pip-слоёв, чтобы не инвалидировать кеш зависимостей.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 
 CMD ["python", "-m", "bot.main"]
