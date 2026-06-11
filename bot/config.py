@@ -34,6 +34,8 @@ class Settings(BaseSettings):
 
     # Голос
     whisper_model: str = "openai/whisper-1"
+    long_audio_min_sec: int = 300        # с какой длительности включать режим лекции (конспект)
+    whisper_chunk_sec: int = 600         # длина сегмента при нарезке длинного аудио
 
 
 settings = Settings()

@@ -1,25 +1,61 @@
-"""Голосовые сообщения: транскрипция (Whisper) → классификация → роутинг.
+"""Голосовые/аудио: транскрипция (Whisper) → классификация → роутинг.
+
+Короткие сообщения — авто-классификация (заметка/задача/вопрос/встреча).
+Длинные записи (>= long_audio_min_sec) — режим лекции: транскрипт + конспект,
+сохранение в базу знаний, кнопка извлечения задач.
 
 Регистрируется ДО ask.router.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+from datetime import datetime
+from pathlib import Path
 
 from aiogram import F, Router
-from aiogram.types import Message
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
+from bot.config import settings
+from bot.handlers import files as files_mod
 from bot.handlers.ask import _handle_question
 from bot.handlers.meetings import add_meeting_and_reply
 from bot.handlers.notes import save_note
 from bot.handlers.tasks import create_task_from_text, format_task_added
-from bot.tools.llm import classify_intent
-from bot.tools.transcribe import temp_path, transcribe
+from bot.tools.llm import classify_intent, summarize_transcript
+from bot.tools.transcribe import temp_path, transcribe, transcribe_long
+from rag import indexer
 
 logger = logging.getLogger(__name__)
 
 router = Router()
+
+_DOMAINS = ("technored", "ministry", "personal", "inbox")
+
+_lecture_kb = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [
+            InlineKeyboardButton(text="technored", callback_data="lecdom:technored"),
+            InlineKeyboardButton(text="ministry", callback_data="lecdom:ministry"),
+        ],
+        [
+            InlineKeyboardButton(text="personal", callback_data="lecdom:personal"),
+            InlineKeyboardButton(text="inbox", callback_data="lecdom:inbox"),
+        ],
+    ]
+)
+
+
+class LectureFlow(StatesGroup):
+    choosing_domain = State()
 
 
 async def _download_voice(message: Message) -> str:
@@ -31,8 +67,17 @@ async def _download_voice(message: Message) -> str:
     return dst
 
 
+def _duration(message: Message) -> int:
+    media = message.voice or message.audio
+    return getattr(media, "duration", 0) or 0
+
+
 @router.message(F.voice | F.audio)
-async def handle_voice(message: Message) -> None:
+async def handle_voice(message: Message, state: FSMContext) -> None:
+    if _duration(message) >= settings.long_audio_min_sec:
+        await _handle_lecture(message, state)
+        return
+
     await message.bot.send_chat_action(message.chat.id, "typing")
     src = None
     try:
@@ -78,3 +123,135 @@ async def handle_voice(message: Message) -> None:
     else:  # question
         await message.answer(prefix + "\n\n💬 Отвечаю…")
         await _handle_question(message, text)
+
+
+async def _handle_lecture(message: Message, state: FSMContext) -> None:
+    """Длинная запись → транскрипт (чанками) + конспект → выбор раздела → сохранение."""
+    minutes = max(1, _duration(message) // 60)
+    status = await message.answer(
+        f"⏳ Распознаю запись (~{minutes} мин). Это займёт пару минут…"
+    )
+
+    async def progress(done: int, total: int) -> None:
+        if total <= 1:
+            return
+        try:
+            await status.edit_text(f"⏳ Распознаю запись… фрагмент {min(done + 1, total)}/{total}")
+        except Exception:
+            pass  # игнор частых правок/без изменений
+
+    src = None
+    try:
+        src = await _download_voice(message)
+    except Exception:
+        logger.exception("Lecture download failed")
+        await status.edit_text(
+            "Не смог скачать запись. Если файл больше 20 МБ — Telegram не отдаёт его боту; "
+            "пришли как голосовое сообщение или раздели на части."
+        )
+        return
+
+    try:
+        try:
+            transcript = await transcribe_long(src, progress_cb=progress)
+        except Exception:
+            logger.exception("Lecture transcription failed")
+            await status.edit_text("Не получилось распознать запись. Попробуй ещё раз.")
+            return
+    finally:
+        if src and os.path.exists(src):
+            try:
+                os.remove(src)
+            except OSError:
+                pass
+
+    if not transcript:
+        await status.edit_text("Не разобрал запись — тишина или плохое качество звука.")
+        return
+
+    await status.edit_text("📝 Делаю конспект…")
+    try:
+        summary = await summarize_transcript(transcript)
+    except Exception:
+        logger.exception("Lecture summary failed")
+        summary = ""
+
+    if not summary:
+        summary = "## Конспект\n(не удалось сжать — ниже полный транскрипт)"
+
+    await state.set_state(LectureFlow.choosing_domain)
+    await state.update_data(transcript=transcript, summary=summary)
+
+    await status.delete()
+    # Конспект может быть длинным — Telegram режет на 4096; шлём как есть (обычно влезает)
+    await message.answer(summary[:4000])
+    await message.answer("📂 В какой раздел сохранить конспект?", reply_markup=_lecture_kb)
+
+
+def _derive_title(summary: str) -> str:
+    """Берёт заголовок из конспекта: первая значимая строка без '#'."""
+    for line in summary.splitlines():
+        s = line.strip().lstrip("#").strip()
+        if s and not s.lower().startswith("тема"):
+            return s[:80]
+    return "Конспект записи"
+
+
+@router.callback_query(F.data.startswith("lecdom:"))
+async def on_lecture_domain(callback: CallbackQuery, state: FSMContext) -> None:
+    domain = callback.data.split(":", 1)[1]
+    if domain not in _DOMAINS:
+        await callback.answer("Неизвестный раздел")
+        return
+
+    data = await state.get_data()
+    await state.clear()
+    transcript = data.get("transcript")
+    summary = data.get("summary", "")
+    if not transcript:
+        await callback.answer("Текст потерялся — пришли запись заново.")
+        return
+
+    await callback.answer("Сохраняю…")
+
+    now = datetime.now()
+    stamp = now.strftime("%Y-%m-%d-%H%M")
+    title = _derive_title(summary)
+
+    dest_dir = Path(settings.knowledge_dir) / domain
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"transcript-{stamp}.md"
+
+    frontmatter = (
+        f"---\n"
+        f"title: {title}\n"
+        f"date: {now.strftime('%Y-%m-%d')}\n"
+        f"domain: {domain}\n"
+        f"tags: [transcript]\n"
+        f"type: meeting\n"
+        f"---\n\n"
+    )
+    body = f"{summary}\n\n## Полный транскрипт\n\n{transcript}\n"
+    try:
+        dest.write_text(frontmatter + body, encoding="utf-8")
+        await asyncio.to_thread(indexer.index_file, dest)
+    except Exception:
+        logger.exception("Lecture save/index failed")
+        if callback.message:
+            await callback.message.edit_text("Не удалось сохранить конспект.")
+        return
+
+    # Готовим кнопку «Извлечь задачи» (переиспользуем механизм из files.py)
+    if callback.from_user:
+        files_mod._last_upload[callback.from_user.id] = str(dest)
+    extract_kb = InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(text="📋 Извлечь задачи", callback_data="extractfile")
+        ]]
+    )
+    if callback.message:
+        await callback.message.edit_text(
+            f"📄 Конспект сохранён: {domain}/{dest.name}.\n"
+            f"Ищется через /ask. Достать задачи из записи?",
+            reply_markup=extract_kb,
+        )
