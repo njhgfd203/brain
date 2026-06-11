@@ -7,7 +7,18 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
 from bot.config import settings
-from bot.handlers import admin, ask, files, habits, meetings, menu, notes, tasks, voice
+from bot.handlers import (
+    admin,
+    ask,
+    extract,
+    files,
+    habits,
+    meetings,
+    menu,
+    notes,
+    tasks,
+    voice,
+)
 from bot.middlewares.access import AccessMiddleware
 from bot.scheduler import setup_scheduler
 from db.database import init_db
@@ -25,6 +36,7 @@ BOT_COMMANDS = [
     BotCommand(command="habits", description="Привычки и стрики"),
     BotCommand(command="meet", description="Добавить встречу (напомню за час)"),
     BotCommand(command="meetings", description="Ближайшие встречи"),
+    BotCommand(command="extract", description="Извлечь задачи из текста встречи"),
     BotCommand(command="help", description="Список команд"),
 ]
 
@@ -44,6 +56,7 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(habits.router)
     dp.include_router(meetings.router)
     dp.include_router(menu.router)
+    dp.include_router(extract.router)
     dp.include_router(files.router)
     dp.include_router(voice.router)
     dp.include_router(ask.router)

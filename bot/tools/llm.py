@@ -1,9 +1,16 @@
 """Обёртка над OpenRouter/Claude через openai-совместимый клиент."""
 from __future__ import annotations
 
+import json
+import logging
+
 import openai
 
 from bot.config import settings
+
+logger = logging.getLogger(__name__)
+
+_KNOWN_DOMAINS = ("technored", "ministry", "personal")
 
 SYSTEM_PROMPT = """\
 Ты — личный ассистент Даниила. Отвечаешь на русском, на «ты», обращение — «Даниил».
@@ -97,6 +104,102 @@ async def classify_intent(text: str) -> str:
         if intent in raw:
             return intent
     return "question"
+
+
+_EXTRACT_PROMPT = """\
+Ты выделяешь конкретные задачи и договорённости из текста (заметки встречи, конспекта).
+
+Найди поручения и дела «кто что должен сделать», дедлайны, следующие шаги.
+Игнорируй общие рассуждения без действия.
+
+Верни СТРОГО JSON-объект вида:
+{"tasks": [{"text": "...", "domain": "...", "due_date": "YYYY-MM-DD или null"}]}
+
+- text — кратко и в повелительном наклонении («подготовить материалы», «позвонить N»).
+- domain — один из: technored, ministry, personal. Если не ясно — personal.
+- due_date — ISO-дата, если в тексте есть срок; иначе null.
+Если задач нет — верни {"tasks": []}. Никакого текста вне JSON."""
+
+
+def _valid_date(value) -> str | None:
+    """Возвращает ISO-дату 'YYYY-MM-DD' или None."""
+    if not value or not isinstance(value, str):
+        return None
+    import re
+
+    return value if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) else None
+
+
+async def extract_tasks(text: str) -> list[dict]:
+    """Выделяет задачи из текста через LLM. Возвращает список {text, domain, due_date}."""
+    if not text or not text.strip():
+        return []
+    client = _get_client()
+    try:
+        resp = await client.chat.completions.create(
+            model=settings.llm_model,
+            max_tokens=1000,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": _EXTRACT_PROMPT},
+                {"role": "user", "content": text[:12000]},
+            ],
+            extra_headers={"HTTP-Referer": "https://github.com/brain-bot", "X-Title": "brain"},
+        )
+        raw = resp.choices[0].message.content or "{}"
+        data = json.loads(raw)
+    except Exception:
+        logger.exception("extract_tasks failed")
+        return []
+
+    items = data.get("tasks", []) if isinstance(data, dict) else []
+    result: list[dict] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        t = (it.get("text") or "").strip()
+        if not t:
+            continue
+        domain = it.get("domain", "personal")
+        if domain not in _KNOWN_DOMAINS:
+            domain = "personal"
+        result.append({"text": t, "domain": domain, "due_date": _valid_date(it.get("due_date"))})
+    return result
+
+
+async def summarize_transcript(text: str) -> str:
+    """Делает структурный конспект расшифровки (Markdown). Для длинных аудио (фаза H)."""
+    client = _get_client()
+    resp = await client.chat.completions.create(
+        model=settings.llm_model,
+        max_tokens=1500,
+        messages=[
+            {"role": "system", "content": _SUMMARY_PROMPT},
+            {"role": "user", "content": text[:60000]},
+        ],
+        extra_headers={"HTTP-Referer": "https://github.com/brain-bot", "X-Title": "brain"},
+    )
+    return resp.choices[0].message.content or ""
+
+
+_SUMMARY_PROMPT = """\
+Ты делаешь конспект расшифровки аудио (лекция, проповедь, встреча) для Даниила.
+
+Сожми в структурный конспект на русском. Формат Markdown:
+
+## Тема
+одно-два предложения, о чём запись.
+
+## Ключевые тезисы
+- маркированный список главных мыслей (5–12 пунктов).
+
+## Решения / выводы
+- что решено или к чему пришли (если применимо).
+
+## Задачи
+- конкретные дела и договорённости (если есть; иначе «—»).
+
+Пиши плотно, без воды. Не выдумывай того, чего нет в расшифровке."""
 
 
 async def ask_llm(question: str, chunks: list[dict]) -> str:

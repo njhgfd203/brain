@@ -17,11 +17,17 @@ from aiogram.types import (
 )
 
 from bot.config import settings
+from bot.handlers.extract import present_candidates
+from bot.tools.llm import extract_tasks
 from rag import indexer
 
 logger = logging.getLogger(__name__)
 
 router = Router()
+
+# Путь к последнему загруженному файлу (бот однопользовательский) — для кнопки
+# «Извлечь задачи». Сбрасывается при рестарте, это ок.
+_last_upload: dict[int, str] = {}
 
 _ALLOWED_EXT = (".md", ".markdown", ".txt")
 _DOMAINS = ("technored", "ministry", "personal", "inbox")
@@ -107,8 +113,35 @@ async def on_domain_chosen(callback: CallbackQuery, state: FSMContext) -> None:
         return
 
     chunks = result.get("chunks", 0)
+    if callback.from_user:
+        _last_upload[callback.from_user.id] = str(dest)
+    extract_kb = InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(text="📋 Извлечь задачи", callback_data="extractfile")
+        ]]
+    )
     if callback.message:
         await callback.message.edit_text(
             f"📄 Сохранено: {domain}/{dest.name} — чанков: {chunks}.\n"
-            f"Теперь можно спрашивать через /ask."
+            f"Теперь можно спрашивать через /ask.",
+            reply_markup=extract_kb,
         )
+
+
+@router.callback_query(F.data == "extractfile")
+async def on_extract_file(callback: CallbackQuery, state: FSMContext) -> None:
+    uid = callback.from_user.id if callback.from_user else 0
+    path_str = _last_upload.get(uid)
+    if not path_str or not Path(path_str).exists():
+        await callback.answer("Файл не найден — пришли заново.")
+        return
+    await callback.answer("🔍 Ищу задачи…")
+    try:
+        text = await asyncio.to_thread(Path(path_str).read_text, "utf-8")
+    except Exception:
+        logger.exception("Failed to read uploaded file for extraction: %s", path_str)
+        await callback.answer("Не смог прочитать файл")
+        return
+    candidates = await extract_tasks(text)
+    if callback.message:
+        await present_candidates(callback.message, candidates, state)
