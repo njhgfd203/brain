@@ -152,6 +152,75 @@ async def rollover_unfinished(to_date: str) -> int:
         return cursor.rowcount
 
 
+async def add_habit(title: str, domain: str, schedule: str) -> int:
+    """Добавляет привычку. schedule: 'daily' или 'wd:0,2,4' (Пн=0)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "INSERT INTO habits (title, domain, schedule) VALUES (?, ?, ?)",
+            (title, domain, schedule),
+        )
+        await db.commit()
+        return cursor.lastrowid  # type: ignore[return-value]
+
+
+async def get_active_habits() -> list[dict]:
+    """Все активные привычки."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT id, title, domain, schedule FROM habits WHERE active = 1 ORDER BY id ASC"
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def get_habits_due(weekday: int) -> list[dict]:
+    """Привычки, запланированные на указанный день недели (Пн=0): daily или с этим днём."""
+    habits = await get_active_habits()
+    due = []
+    for h in habits:
+        sched = h["schedule"]
+        if sched == "daily":
+            due.append(h)
+        elif sched.startswith("wd:"):
+            days = sched[3:].split(",")
+            if str(weekday) in days:
+                due.append(h)
+    return due
+
+
+async def log_habit(habit_id: int, done_date: str) -> None:
+    """Отмечает привычку выполненной за дату (идемпотентно)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO habit_log (habit_id, done_date) VALUES (?, ?)",
+            (habit_id, done_date),
+        )
+        await db.commit()
+
+
+async def get_habit_log_dates(habit_id: int) -> list[str]:
+    """Все даты отметок привычки (ISO, по убыванию)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT done_date FROM habit_log WHERE habit_id = ? ORDER BY done_date DESC",
+            (habit_id,),
+        )
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]
+
+
+async def deactivate_habit(habit_id: int) -> bool:
+    """Архивирует привычку (active=0). True если строка обновлена."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE habits SET active = 0 WHERE id = ? AND active = 1",
+            (habit_id,),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
 async def complete_task(task_id: int) -> bool:
     """Помечает задачу выполненной. Возвращает True если строка была обновлена."""
     async with aiosqlite.connect(DB_PATH) as db:

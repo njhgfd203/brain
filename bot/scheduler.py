@@ -2,16 +2,23 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from bot.config import settings
+from bot.handlers.habits import _streak_for
 from bot.handlers.tasks import build_evening_view, urgency_emoji
-from db.database import get_due_meetings, get_today_tasks, mark_meeting_reminded
+from db.database import (
+    get_due_meetings,
+    get_habits_due,
+    get_today_tasks,
+    mark_meeting_reminded,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,20 +34,40 @@ def _parse_hm(value: str) -> tuple[int, int]:
 
 
 async def send_morning_digest(bot: Bot) -> None:
-    """Утром: задачи на сегодня и просроченные со смайликами срочности."""
+    """Утром: задачи на сегодня и просроченные + привычки на сегодня."""
     uid = settings.telegram_allowed_user_id
     tasks = await get_today_tasks()
 
-    if not tasks:
-        await bot.send_message(uid, "☀️ Доброе утро, Даниил!\n\nНа сегодня задач нет 🎉")
-        return
+    lines = ["☀️ Доброе утро, Даниил!", ""]
+    if tasks:
+        lines.append("Задачи на сегодня:")
+        for t in tasks:
+            emoji = urgency_emoji(t["due_date"])
+            lines.append(f"{emoji} {t['text']} ({t['domain']})")
+        lines.append("\n🔴 просрочено · 🟢 сегодня")
+    else:
+        lines.append("На сегодня задач нет 🎉")
 
-    lines = ["☀️ Доброе утро, Даниил!", "", "Задачи на сегодня:"]
-    for t in tasks:
-        emoji = urgency_emoji(t["due_date"])
-        lines.append(f"{emoji} {t['text']} ({t['domain']})")
-    lines.append("\n🔴 просрочено · 🟢 сегодня")
     await bot.send_message(uid, "\n".join(lines))
+
+    # Привычки на сегодня — отдельным сообщением с кнопками отметки
+    habits = await get_habits_due(date.today().weekday())
+    if habits:
+        hlines = ["🔁 Привычки на сегодня:"]
+        rows: list[list[InlineKeyboardButton]] = []
+        for h in habits:
+            s = await _streak_for(h["id"], h["schedule"])
+            flame = f"🔥 {s}" if s > 0 else "—"
+            hlines.append(f"• {h['title']} {flame}")
+            rows.append([
+                InlineKeyboardButton(
+                    text=f"✅ {h['title'][:30]}",
+                    callback_data=f"habdone:{h['id']}",
+                )
+            ])
+        await bot.send_message(
+            uid, "\n".join(hlines), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
+        )
 
 
 async def send_evening_review(bot: Bot) -> None:

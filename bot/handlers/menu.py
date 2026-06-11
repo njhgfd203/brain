@@ -14,6 +14,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
 from bot import keyboards as kb
+from bot.handlers.habits import cmd_habits
 from bot.handlers.meetings import add_meeting_and_reply
 from bot.handlers.notes import save_note
 from bot.handlers.tasks import cmd_today, cmd_week, create_task_from_text, format_task_added
@@ -41,6 +42,12 @@ async def btn_today(message: Message, state: FSMContext) -> None:
 async def btn_week(message: Message, state: FSMContext) -> None:
     await state.clear()
     await cmd_week(message)
+
+
+@router.message(F.text == kb.BTN_HABITS)
+async def btn_habits(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await cmd_habits(message)
 
 
 # --- Кнопки-флоу: спрашиваем ввод, ловим следующее сообщение ---
