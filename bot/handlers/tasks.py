@@ -27,14 +27,14 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 def urgency_emoji(due_date: str | None) -> str:
-    """Смайлик срочности по дате: 🔴 просрочено, 🟠 сегодня, 🟡 позже, ⚪ без срока."""
+    """Смайлик срочности по дате: 🔴 просрочено, 🟢 сегодня, 🟡 позже, ⚪ без срока."""
     if not due_date:
         return "⚪"
     today = date.today().isoformat()
     if due_date < today:
         return "🔴"
     if due_date == today:
-        return "🟠"
+        return "🟢"
     return "🟡"
 
 
@@ -153,13 +153,10 @@ async def cmd_today(message: Message) -> None:
         await message.answer("На сегодня задач нет 🎉")
         return
 
-    today_iso = date.today().isoformat()
     lines = ["Задачи на сегодня и просроченные:"]
     for t in tasks:
-        overdue_mark = " ⚠️" if t["due_date"] < today_iso else ""
-        lines.append(
-            f"• [{t['id']}] {t['text']} ({t['domain']}) — {t['due_date']}{overdue_mark}"
-        )
+        emoji = urgency_emoji(t["due_date"])
+        lines.append(f"{emoji} {t['text']} ({t['domain']})")
     await message.answer("\n".join(lines))
 
 
@@ -186,7 +183,8 @@ async def cmd_week(message: Message) -> None:
     for domain in ordered_domains:
         lines.append(f"\n[{domain}]")
         for t in groups[domain]:
-            lines.append(f"  • [{t['id']}] {t['text']} — {t['due_date']}")
+            emoji = urgency_emoji(t["due_date"])
+            lines.append(f"  {emoji} {t['text']} — {t['due_date']}")
 
     await message.answer("\n".join(lines))
 
@@ -207,7 +205,7 @@ async def build_evening_view() -> tuple[str, InlineKeyboardMarkup | None]:
     rows: list[list[InlineKeyboardButton]] = []
     for t in tasks:
         emoji = urgency_emoji(t["due_date"])
-        lines.append(f"{emoji} [{t['id']}] {t['text']} ({t['domain']})")
+        lines.append(f"{emoji} {t['text']} ({t['domain']})")
         rows.append([
             InlineKeyboardButton(
                 text=f"✅ {_short(t['text'])}",

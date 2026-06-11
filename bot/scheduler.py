@@ -38,8 +38,8 @@ async def send_morning_digest(bot: Bot) -> None:
     lines = ["☀️ Доброе утро, Даниил!", "", "Задачи на сегодня:"]
     for t in tasks:
         emoji = urgency_emoji(t["due_date"])
-        lines.append(f"{emoji} [{t['id']}] {t['text']} ({t['domain']}) — {t['due_date']}")
-    lines.append("\n🔴 просрочено · 🟠 сегодня")
+        lines.append(f"{emoji} {t['text']} ({t['domain']})")
+    lines.append("\n🔴 просрочено · 🟢 сегодня")
     await bot.send_message(uid, "\n".join(lines))
 
 
