@@ -31,6 +31,7 @@ from bot.handlers.meetings import add_meeting_and_reply
 from bot.handlers.notes import save_note
 from bot.handlers.tasks import create_task_from_text, format_task_added
 from bot.tools.llm import classify_intent, summarize_transcript
+from bot.tools.tgfiles import fetch_to
 from bot.tools.transcribe import temp_path, transcribe, transcribe_long
 from rag import indexer
 
@@ -61,9 +62,8 @@ class LectureFlow(StatesGroup):
 async def _download_voice(message: Message) -> str:
     """Скачивает голосовое/аудио во временный файл, возвращает путь."""
     media = message.voice or message.audio
-    file = await message.bot.get_file(media.file_id)
     dst = temp_path(".oga")
-    await message.bot.download_file(file.file_path, destination=dst)
+    await fetch_to(message.bot, media.file_id, dst)
     return dst
 
 

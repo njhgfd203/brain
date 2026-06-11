@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     telegram_webhook_url: str = ""
     telegram_allowed_user_id: int
 
+    # Self-hosted Bot API server (для файлов >20 МБ; иначе облачный API)
+    local_bot_api: bool = False
+    bot_api_base_url: str = "http://telegram-bot-api:8081"
+    telegram_api_id: int = 0
+    telegram_api_hash: str = ""
+
     # LLM
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"

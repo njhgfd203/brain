@@ -19,6 +19,7 @@ from aiogram.types import (
 from bot.config import settings
 from bot.handlers.extract import present_candidates
 from bot.tools.llm import extract_tasks
+from bot.tools.tgfiles import fetch_to
 from rag import indexer
 
 logger = logging.getLogger(__name__)
@@ -101,8 +102,7 @@ async def on_domain_chosen(callback: CallbackQuery, state: FSMContext) -> None:
         i += 1
 
     try:
-        file = await callback.bot.get_file(file_id)
-        await callback.bot.download_file(file.file_path, destination=str(dest))
+        await fetch_to(callback.bot, file_id, str(dest))
         result = await asyncio.to_thread(indexer.index_file, dest)
     except Exception:
         logger.exception("File upload/index failed for %s", file_name)

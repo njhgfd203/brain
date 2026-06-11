@@ -45,6 +45,20 @@ async def set_bot_commands(bot: Bot) -> None:
     await bot.set_my_commands(BOT_COMMANDS)
 
 
+def build_bot() -> Bot:
+    """Создаёт Bot. В local_bot_api режиме ходит через self-hosted Bot API (лимит 2 ГБ)."""
+    if settings.local_bot_api and settings.bot_api_base_url:
+        from aiogram.client.session.aiohttp import AiohttpSession
+        from aiogram.client.telegram import TelegramAPIServer
+
+        session = AiohttpSession(
+            api=TelegramAPIServer.from_base(settings.bot_api_base_url, is_local=True)
+        )
+        logging.info("Использую локальный Bot API: %s", settings.bot_api_base_url)
+        return Bot(token=settings.telegram_bot_token, session=session)
+    return Bot(token=settings.telegram_bot_token)
+
+
 def build_dispatcher() -> Dispatcher:
     dp = Dispatcher(storage=MemoryStorage())
     dp.update.middleware(AccessMiddleware())
@@ -65,7 +79,7 @@ def build_dispatcher() -> Dispatcher:
 
 async def run_polling() -> None:
     await init_db()
-    bot = Bot(token=settings.telegram_bot_token)
+    bot = build_bot()
     dp = build_dispatcher()
     await set_bot_commands(bot)
     setup_scheduler(bot)
@@ -77,7 +91,7 @@ async def run_webhook() -> None:
     from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
     await init_db()
-    bot = Bot(token=settings.telegram_bot_token)
+    bot = build_bot()
     dp = build_dispatcher()
 
     setup_scheduler(bot)
